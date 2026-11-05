@@ -330,30 +330,63 @@ extension LanguageLayer {
 		return layer.parse(with: content, affecting: affectedSet, resolveSublayers: true)
 	}
 
-	private func encorporateRanges(_ tsRanges: [TSRange], content: Content) throws -> IndexSet {
+	private func encorporateRanges(
+		_ tsRanges: [TSRange], replacing coverage: IndexSet, content: Content
+	) -> (invalidation: IndexSet, hasRanges: Bool) {
 		guard let includedRanges = state.tree?.includedRanges else {
 			preconditionFailure("Cannot encorporateRanges into a layer that doesn't have any already defined")
 		}
 
-		var allRanges = includedRanges
-		var invalidation = IndexSet()
-
-		for newTSRange in tsRanges {
-			allRanges.removeAll(where: { newTSRange.bytes.lowerBound == $0.bytes.lowerBound })
-
-			allRanges.append(newTSRange)
-
-			invalidation.insert(integersIn: Range(newTSRange.bytes.range)!)
+		let replacement = Self.replacingIncludedRanges(includedRanges, with: tsRanges, in: coverage)
+		var invalidation = replacement.invalidation
+		guard !replacement.ranges.isEmpty else {
+			return (invalidation, false)
 		}
-
-		// included ranges must be sorted and the above algorithm does not guarantee that
-		self.parser.includedRanges = allRanges.sorted()
+		if replacement.ranges == includedRanges && invalidation.isEmpty {
+			return (invalidation, true)
+		}
+		self.parser.includedRanges = replacement.ranges
 
 		let set = parse(with: content)
 
 		invalidation.formUnion(set)
 
-		return invalidation
+		return (invalidation, true)
+	}
+
+	/// Replace captures within the queried coverage, including vanished captures.
+	/// Fresh captures also replace overlapping old captures outside that coverage.
+	/// Keep unqueried neighbors and their original points exact.
+	static func replacingIncludedRanges(
+		_ existing: [TSRange], with replacements: [TSRange], in coverage: IndexSet
+	) -> (ranges: [TSRange], invalidation: IndexSet) {
+		let fresh = Set(replacements).filter { !$0.bytes.isEmpty }.sorted {
+			$0.bytes.lowerBound < $1.bytes.lowerBound
+		}
+		let old = existing.filter { !$0.bytes.isEmpty }.sorted {
+			$0.bytes.lowerBound < $1.bytes.lowerBound
+		}
+		var ranges = fresh
+		var invalidation = IndexSet()
+		for range in fresh {
+			invalidation.insert(integersIn: Range(range.bytes.range)!)
+		}
+		var nextFresh = 0
+		for range in old {
+			while nextFresh < fresh.count && fresh[nextFresh].bytes.upperBound <= range.bytes.lowerBound {
+				nextFresh += 1
+			}
+			if coverage.intersects(integersIn: Range(range.bytes.range)!)
+				|| (nextFresh < fresh.count && fresh[nextFresh].bytes.lowerBound < range.bytes.upperBound) {
+				// The old capture can extend beyond the new one; invalidate its
+				// whole span so the client can clear obsolete styling there too.
+				invalidation.insert(integersIn: Range(range.bytes.range)!)
+			} else {
+				ranges.append(range)
+			}
+		}
+		ranges.sort { $0.bytes.lowerBound < $1.bytes.lowerBound }
+		return (ranges, invalidation)
 	}
 
 	/// Recursively resolve any language injections within the set.
@@ -370,11 +403,15 @@ extension LanguageLayer {
 		let injections = try executeShallowQuery(.injections, in: set).injections(with: content.textProvider)
 		let groupedInjections = Dictionary(grouping: injections, by: { $0.name })
 		var invalidations = IndexSet()
+		var coverage = set
+		for injection in injections {
+			coverage.insert(integersIn: Range(injection.tsRange.bytes.range)!)
+		}
 
-		// they could be new, or could be updates to existing
-		for pair in groupedInjections {
-			let name = pair.0
-			let ranges = pair.value.map { $0.tsRange }
+		// A query can remove every capture of an existing language. Reconcile
+		// that language too, while retaining ranges outside the queried coverage.
+		for name in Set(groupedInjections.keys).union(sublayers.keys) {
+			let ranges = groupedInjections[name, default: []].map { $0.tsRange }
 
 			guard let sublayer = sublayers[name] else {
 				let set = try addNewSublayer(named: name, tsRanges: ranges, content: content)
@@ -384,9 +421,13 @@ extension LanguageLayer {
 				continue
 			}
 
-			let set = try sublayer.encorporateRanges(ranges, content: content)
-
-			invalidations.formUnion(set)
+			let replacement = sublayer.encorporateRanges(ranges, replacing: coverage, content: content)
+			invalidations.formUnion(replacement.invalidation)
+			if !replacement.hasRanges {
+				// Passing [] to the C parser would select the entire document.
+				// Retire an empty restricted layer instead of broadening its input.
+				sublayers.removeValue(forKey: name)
+			}
 		}
 
 		return invalidations
