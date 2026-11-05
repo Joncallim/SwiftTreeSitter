@@ -156,7 +156,16 @@ extension LanguageLayer {
 	}
 
 	private func parse(with content: Content) -> IndexSet {
-		let newState = parser.parse(state: state, readHandler: content.readHandler)
+		let inputState: ParseState
+		if languageConfig.reusesPreviousTree {
+			inputState = state
+		} else {
+			// Keep the edited old state for invalidation comparison, but avoid
+			// reusing grammar state that can disagree with a fresh parse.
+			parser.reset()
+			inputState = ParseState()
+		}
+		let newState = parser.parse(state: inputState, readHandler: content.readHandler)
 
 		let oldState = state
 
@@ -399,6 +408,11 @@ extension LanguageLayer {
 			return IndexSet()
 		}
 
+		// An old capture touched by the query may move its replacement outside
+		// that query window. Fetch its complete extent before retiring it.
+		let existingRanges = sublayers.values.flatMap { $0.state.tree?.includedRanges ?? [] }
+			.filter { !$0.bytes.isEmpty }
+
 		// injections must be shallow
 		var coverage = set
 		var injections = try executeShallowQuery(.injections, in: coverage).injections(with: content.textProvider)
@@ -406,6 +420,12 @@ extension LanguageLayer {
 			var expanded = coverage
 			for injection in injections {
 				expanded.insert(integersIn: Range(injection.tsRange.bytes.range)!)
+			}
+			for old in existingRanges {
+				let span = Range(old.bytes.range)!
+				if expanded.intersects(integersIn: span) {
+					expanded.insert(integersIn: span)
+				}
 			}
 			if expanded == coverage { break }
 			coverage = expanded

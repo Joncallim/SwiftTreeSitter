@@ -25,3 +25,26 @@ capture can contain unqueried narrower captures of another language. Query the
 monotonically expanded coverage to a fixed point before replacement so all
 captures in that coverage are available. Regressions preserve all three narrow
 captures and retire a renamed language when only its external tag is queried.
+
+## Complete replacement coverage and explicit fresh parsing
+
+Before retiring an old injection touched by a partial query, expand coverage to
+its complete current extent and requery to a fixed point. A replacement can
+start outside the original query window; fresh-capture expansion alone misses
+it. The application regression fails for LF, CRLF and CR on the prior fork and
+passes here without changing the default tree-reuse policy.
+
+LanguageConfiguration.reusesPreviousTree is a source-compatible public Boolean,
+defaulting to true. Setting it false resets parser continuation state and parses
+without an old tree while retaining the previous edited tree for invalidation
+comparison. The application selects false only for MarkdownInline after a valid
+UTF-16 scalar corpus exposed a different child AST despite equal root AST and
+included ranges. Other configurations, constructor signatures, grammar bytes,
+runtime pin and BSD licence remain unchanged. This section supersedes the
+prior statement that all public APIs are unchanged: this one opt-out is added.
+
+The unchanged 2,000-edit fresh-highlight oracle passes with both corrections.
+Upstream Debug/Release suites pass 36 XCTest cases and 12 Swift Testing
+functions; inspected application Foundation/C fixtures pass 36 functions plus
+8 XCTest cases. Release component timing remains distinct from whole-editor
+responsiveness, native acceptance and the retained large-document fallback.

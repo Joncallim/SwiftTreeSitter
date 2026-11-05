@@ -63,6 +63,21 @@ struct IncludedRangeReplacementTests {
 		#expect(actual == expected)
 	}
 
+	@Test func freshTreePolicyRebuildsTheTreeWithoutChangingItsSyntax() throws {
+		var config = LanguageLayerTests.swiftConfig
+		config.reusesPreviousTree = false
+		let layer = try LanguageLayer(languageConfig: config, configuration: .init())
+		let text = "let value = 1\n"
+		_ = layer.replaceContent(with: text)
+		let before = try #require(layer.snapshot()?.rootSnapshot.tree)
+		let beforeRoot = try #require(before.rootNode)
+		_ = layer.parse(with: .init(string: text), affecting: IndexSet(integersIn: 0..<text.utf16.count), resolveSublayers: false)
+		let afterRoot = try #require(layer.snapshot()?.rootSnapshot.tree.rootNode)
+		#expect(beforeRoot.id != afterRoot.id)
+		#expect(beforeRoot.sExpressionString == afterRoot.sExpressionString)
+		#expect(beforeRoot.range == afterRoot.range)
+	}
+
 	@Test func partialQueriesRetainUnqueriedNeighbors() throws {
 		let text = (0..<100).map { "let value\($0) = \"var n = 1\"\n" }.joined()
 		try assertFreshEquivalent(text, edits: [Edit(range: NSRange(location: 900, length: 600), replacement: "")], wholeDocument: false)

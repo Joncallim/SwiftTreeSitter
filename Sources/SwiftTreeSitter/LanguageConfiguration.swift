@@ -23,6 +23,10 @@ public struct LanguageConfiguration: Sendable {
 	public let language: Language
 	public let data: LanguageData
 
+	/// Whether layers may pass their previous tree back to the parser.
+	/// Disable this for grammars whose incremental result differs from a fresh parse.
+	public var reusesPreviousTree = true
+
 	/// Create a configuration with the language parser reference and details about its queries.
 	public init(_ language: Language, data: LanguageData) {
 		self.language = language
