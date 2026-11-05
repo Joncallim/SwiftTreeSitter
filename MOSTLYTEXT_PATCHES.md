@@ -19,3 +19,9 @@ sublayer/styling invalidation and the Markdown grammar's incremental-reuse
 limits remain separate issues; the large-document fallback is not raised here.
 
 This is an owner-maintained fork. No upstream submission or acceptance is claimed.
+
+Final source review also reproduces a partial-query cross-language case: a wide
+capture can contain unqueried narrower captures of another language. Query the
+monotonically expanded coverage to a fixed point before replacement so all
+captures in that coverage are available. Regressions preserve all three narrow
+captures and retire a renamed language when only its external tag is queried.

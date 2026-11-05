@@ -89,6 +89,60 @@ struct IncludedRangeReplacementTests {
 		#expect(edited.snapshot()?.sublayerSnapshots.isEmpty == true)
 	}
 
+	@Test func partialQueryKeepsNarrowCapturesInsideAnotherLanguagesWideCapture() throws {
+		let queryText = """
+((array_literal) @injection.content (#set! injection.language "wide"))
+((line_str_text) @injection.content (#set! injection.language "narrow"))
+"""
+		let base = LanguageLayerTests.swiftConfig
+		let query = try Query(language: base.language, data: Data(queryText.utf8))
+		var queries = base.queries
+		queries[.injections] = query
+		let outer = LanguageConfiguration(base.language, name: "outer", queries: queries)
+		let configuration = LanguageLayer.Configuration(languageProvider: { name in
+			LanguageConfiguration(base.language, name: name, queries: base.queries)
+		})
+		let source = #"let values = ["var one = 1", "var two = 2", "var three = 3"]"#
+		let edited = try LanguageLayer(languageConfig: outer, configuration: configuration)
+		_ = edited.replaceContent(with: source)
+		let before = try #require(edited.snapshot()?.sublayerSnapshots.first {
+			$0.rootSnapshot.data.name == "narrow"
+		}?.rootSnapshot.tree.includedRanges)
+		#expect(before.count == 3)
+		let window = (source as NSString).range(of: "one")
+		_ = try edited.resolveSublayers(with: .init(string: source), in: window)
+		let after = try #require(edited.snapshot()?.sublayerSnapshots.first {
+			$0.rootSnapshot.data.name == "narrow"
+		}?.rootSnapshot.tree.includedRanges)
+		#expect(after == before)
+	}
+
+	@Test func languageTagChangeRetiresBodyOutsideTheRequestedWindow() throws {
+		let base = LanguageLayerTests.swiftConfig
+		let query = try Query(language: base.language, data: Data("""
+(function_declaration name: (simple_identifier) @injection.language body: (function_body) @injection.content)
+""".utf8))
+		var queries = base.queries
+		queries[.injections] = query
+		let outer = LanguageConfiguration(base.language, name: "outer", queries: queries)
+		let configuration = LanguageLayer.Configuration(languageProvider: { name in
+			LanguageConfiguration(base.language, name: name, queries: base.queries)
+		})
+		let before = "func old() { let n = 1 }"
+		let after = "func new() { let n = 1 }"
+		let layer = try LanguageLayer(languageConfig: outer, configuration: configuration)
+		_ = layer.replaceContent(with: before)
+		#expect(layer.snapshot()?.sublayerSnapshots.map { $0.rootSnapshot.data.name } == ["old"])
+		let range = (before as NSString).range(of: "old")
+		_ = layer.didChangeContent(.init(string: after), using: InputEdit(
+			startByte: range.location * 2, oldEndByte: range.upperBound * 2, newEndByte: range.upperBound * 2,
+			startPoint: point(range.location, in: before), oldEndPoint: point(range.upperBound, in: before),
+			newEndPoint: point(range.upperBound, in: after)
+		), resolveSublayers: false)
+		_ = try layer.resolveSublayers(with: .init(string: after), in: range)
+		#expect(layer.snapshot()?.sublayerSnapshots.map { $0.rootSnapshot.data.name } == ["new"])
+	}
+
 	@Test func rangeReplacementPreservesNeighborsAndInvalidatesRemovedExtent() {
 		func range(_ lower: UInt32, _ upper: UInt32) -> TSRange {
 			TSRange(points: Point(row: 0, column: Int(lower))..<Point(row: 0, column: Int(upper)), bytes: lower..<upper)

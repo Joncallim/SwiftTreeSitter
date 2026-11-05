@@ -400,13 +400,21 @@ extension LanguageLayer {
 		}
 
 		// injections must be shallow
-		let injections = try executeShallowQuery(.injections, in: set).injections(with: content.textProvider)
+		var coverage = set
+		var injections = try executeShallowQuery(.injections, in: coverage).injections(with: content.textProvider)
+		while true {
+			var expanded = coverage
+			for injection in injections {
+				expanded.insert(integersIn: Range(injection.tsRange.bytes.range)!)
+			}
+			if expanded == coverage { break }
+			coverage = expanded
+			// A wide capture can contain unqueried captures of another
+			// language. Query the complete coverage before retiring them.
+			injections = try executeShallowQuery(.injections, in: coverage).injections(with: content.textProvider)
+		}
 		let groupedInjections = Dictionary(grouping: injections, by: { $0.name })
 		var invalidations = IndexSet()
-		var coverage = set
-		for injection in injections {
-			coverage.insert(integersIn: Range(injection.tsRange.bytes.range)!)
-		}
 
 		// A query can remove every capture of an existing language. Reconcile
 		// that language too, while retaining ranges outside the queried coverage.
