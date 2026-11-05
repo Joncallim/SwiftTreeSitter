@@ -48,3 +48,15 @@ Upstream Debug/Release suites pass 36 XCTest cases and 12 Swift Testing
 functions; inspected application Foundation/C fixtures pass 36 functions plus
 8 XCTest cases. Release component timing remains distinct from whole-editor
 responsiveness, native acceptance and the retained large-document fallback.
+
+## Runtime range-lookup dependency
+
+This dependency-metadata child pins owner tree-sitter5ce80b6f0e29096a5f06826a3ba610c4e89bc255
+in the manifest and standalone lock. SwiftTreeSitter runtime and test bytes
+remain identical to7d2dc87e8b9326062d75bc1ef985f17d28e94da9, including the
+explicit fresh MarkdownInline policy API and complete injection reconciliation.
+The C child preserves original runtime behavior while replacing a linear lexer
+range lookup with binary search. All6,000 cross-runtime traces agree;282
+original incremental/fresh discrepancies retain failing status. No ABI/header,
+grammar, licence or unrelated dependency upgrade occurs. Application fresh-policy
+regressions and full hosted integration remain required before adoption.
